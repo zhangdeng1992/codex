@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Seurat RDS → 原始 counts H5AD；需要 R 的 SeuratObject 与 Matrix。"""
 import argparse
+import os
 from pathlib import Path
 import shutil
 import subprocess
@@ -37,7 +38,13 @@ def convert_export(folder, output):
     data.layers['counts'] = counts.copy()
     data.uns['conversion'] = 'Seurat raw counts; metadata columns stored as strings'
     output.parent.mkdir(parents=True, exist_ok=True)
-    data.write_h5ad(output)
+    # pandas 3 自动推断的分类 categories 可能成为 nullable StringArray。
+    # 保持已有 object 字符串列，不让 AnnData 自动转成分类。
+    # 同目录临时写入，完整成功后发布；硬链接拒绝覆盖已有输出。
+    with tempfile.TemporaryDirectory(prefix='.h5ad-write-', dir=output.parent) as tmp:
+        staged = Path(tmp) / 'complete.h5ad'
+        data.write_h5ad(staged, convert_strings_to_categoricals=False)
+        os.link(staged, output)
     print(f'完成：{output}，{data.n_obs} 个细胞，{data.n_vars} 个基因')
 
 
