@@ -38,6 +38,28 @@ pip install -r requirements.txt
 
 ## 输入准备
 
+### Seurat RDS 转 H5AD
+
+新增转换工具支持 Seurat v4/v5；v5 分拆的 counts layers 会在内存中合并。
+除 Python 依赖外，需要安装 R（建议 4.3 或更高版本）和 R 包：
+
+```r
+install.packages(c("SeuratObject", "Matrix"))
+```
+
+```bash
+python rds_to_h5ad.py --input data/ginkgo.rds --out data/ginkgo.h5ad
+python rds_to_h5ad.py --input data/arabidopsis.rds --out data/arabidopsis.h5ad
+```
+
+默认从 `RNA` assay 提取原始 counts，写入 `X` 和 `layers['counts']`，
+保留基因 ID、细胞 ID 和 `meta.data`，按 counts 中的细胞顺序对齐元数据。
+元数据列保存为字符串，数值列如需分析请显式转换类型。
+缺失元数据值导出为空字符串，运行 SAMap 前请补齐或删除缺失的细胞类型和批次标签。
+不导出 Seurat 的 PCA、UMAP、整合矩阵或邻接图；SAMap 将重新计算。
+没有原始 counts 的对象不能用 normalized data 替代；其他 assay 用 `--assay NAME` 指定。
+生成的 H5AD 可使用 `--counts-layer counts` 接入后续 SAMap 命令。
+
 - 每个物种一个 `.h5ad`，细胞为行、基因为列，事先完成 QC 和双细胞处理。
 - `X` 应为原始非负整数 counts；若原始 counts 在 `layers['counts']`，使用 `--counts-layer counts`。
   不要传入 log-normalized、scaled 或 integrated 表达矩阵。

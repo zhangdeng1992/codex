@@ -99,7 +99,8 @@ def main():
         if (np.asarray(counts.sum(axis=1)).ravel() == 0).any():
             raise ValueError(f'{sid}: 存在零 counts 细胞，请先做 QC')
         if args.label_key in source.obs:
-            if source.obs[args.label_key].isna().any():
+            if (source.obs[args.label_key].isna().any()
+                    or source.obs[args.label_key].astype(str).str.strip().eq('').any()):
                 raise ValueError(f'{sid}: {args.label_key} 存在缺失值')
             keys[sid] = args.label_key
         else:
@@ -112,7 +113,8 @@ def main():
         data.write_h5ad(destination)
         batch_key = args.batch_keys.get(sid)
         if batch_key:
-            if batch_key not in data.obs or data.obs[batch_key].isna().any():
+            if (batch_key not in data.obs or data.obs[batch_key].isna().any()
+                    or data.obs[batch_key].astype(str).str.strip().eq('').any()):
                 raise ValueError(f'{sid}: 批次列 {batch_key!r} 不存在或有缺失值')
             if data.obs[batch_key].nunique() < 2:
                 raise ValueError(f'{sid}: 批次列只有一个批次，请省略该物种的 --batch-key')

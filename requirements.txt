@@ -1,2 +1,3 @@
 sc-samap==3.0.1
 harmonypy==0.0.10
+scanpy>=1.10,<2
