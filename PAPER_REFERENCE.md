@@ -13,7 +13,7 @@
 | --- | --- |
 | `SAMap_prepare.ipynb`：每物种 `SAM.load_data → preprocess_data → run` | 各物种独立构建 SAM 对象 |
 | 多样本物种 `sam.run(batch_key='orig.ident')` | `--batch-key gb=orig.ident`，在物种内部做 Harmony |
-| `pairwise_blastp.sh`：所有蛋白组两两双向 BLASTP | `build_protein_maps.py`，保留 `outfmt 6`、`max_hsps 1`、`evalue 1e-6` |
+| `pairwise_blastp.sh`：所有蛋白组两两双向 BLASTP | `build_protein_maps.py --aligner blast` 保留作者比对路线；默认 DIAMOND 为替代路线 |
 | `SAMap_integration.ipynb`：预处理 SAM 对象传给 SAMAP | 直接传内存 SAM 对象 |
 | `sm.run(pairwise=True)` | 显式启用 `pairwise=True`，另外提供迭代数和线程参数 |
 
@@ -26,7 +26,7 @@
 python build_protein_maps.py \
   --protein gb=data/ginkgo.pep \
   --protein at=data/arabidopsis.pep \
-  --out maps/plant --threads 4
+  --out maps/plant --aligner diamond --threads 4
 
 python samap_integrate.py \
   --species gb=data/ginkgo.h5ad \
@@ -37,6 +37,9 @@ python samap_integrate.py \
 ```
 
 没有多个批次时省略 `--batch-key`；不要将物种作为 Harmony 批次。
+上述命令需安装 DIAMOND 2.x。默认使用 ultra-sensitive 模式，并取消目标命中数限制。
+若使用论文的 BLASTP 路线，安装 NCBI BLAST+ 并将 `--aligner` 改为 `blast`。
+DIAMOND 替代仅适用于蛋白—蛋白比对；输出格式兼容不表示论文数值结果一致。
 每个物种的蛋白 FASTA ID 必须与该物种表达矩阵基因 ID 对应。
 多个转录本对应一个基因时，先根据注释明确选择代表蛋白或制定 ID 映射规则；
 不能简单按字符串裁剪所有物种的 ID，也不能把一对一同源筛选强加到 SAMap 的多对多同源图上。

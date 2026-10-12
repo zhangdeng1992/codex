@@ -6,6 +6,22 @@ codex 调用
 本脚本使用 SAMap 3.x，根据基因同源关系建立跨物种细胞图，支持两个或更多物种。
 现已参考 Cell 论文的公开分析代码，加入物种内 Harmony 和双向 BLASTP 生成；
 详见 [论文代码对照与植物示例](PAPER_REFERENCE.md)。
+同源表生成默认使用 DIAMOND，也可通过 `--aligner blast` 使用 BLASTP。
+
+### DIAMOND 同源表生成
+
+需要独立安装 DIAMOND 2.x（不包含在 pip 依赖中）：
+
+```bash
+conda install -c conda-forge -c bioconda diamond
+python build_protein_maps.py \
+  --protein gb=data/ginkgo.pep --protein at=data/arabidopsis.pep \
+  --out maps/plant --aligner diamond --threads 4
+```
+
+默认启用 `--ultra-sensitive`、`--evalue 1e-6`、`--max-hsps 1` 和
+`--max-target-seqs 0`，输出双向标准 12 列表，后续 SAMap 命令保持一致。
+结果不保证与 BLASTP 相同，应比较同源覆盖及细胞映射效果。
 联合对象用于跨物种映射与可视化；其表达矩阵不是统一同源基因空间的批次校正矩阵，
 不要直接用于跨物种差异表达。若需要这种表达矩阵，需要另行制定同源基因汇总规则。
 
