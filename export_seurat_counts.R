@@ -15,6 +15,9 @@ if (inherits(assay, "Assay5")) {
     assay <- JoinLayers(assay, layers = layers, new = "counts")
   }
   counts <- LayerData(assay, layer = "counts")
+} else if (utils::packageVersion("SeuratObject") >= "5.0.0") {
+  # 新版 SeuratObject 加载旧式 Assay 时同样禁止 slot 参数。
+  counts <- GetAssayData(assay, layer = "counts")
 } else {
   counts <- GetAssayData(assay, slot = "counts")
 }
