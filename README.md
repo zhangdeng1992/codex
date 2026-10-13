@@ -92,6 +92,27 @@ bash SAMap_tools/map_genes.sh \
 
 ## 运行
 
+### 蛋白 ID 与表达基因 ID 不一致
+
+先核对注释及匹配率，再用 `normalize_homology_ids.py` 转换同源表。
+例如 Gerbera 的 `Ger_000002.m1` 对应 `Ger_000002`，CL15 的
+`CL1A000080.5` 对应 `CL1A000080`：
+
+```bash
+python normalize_homology_ids.py \
+  --species gb=Gerbera_scRNA.all_samples.2026-Sep-15.h5ad \
+  --species cl=CL15_snRNA.h5ad \
+  --strip-suffix 'gb=\.m[0-9]+$' \
+  --strip-suffix 'cl=\.[0-9]+$' \
+  --maps maps --out maps_gene_ids
+```
+
+程序转换每个方向的前两列，优先保留已匹配 H5AD 的原始 ID，
+只保留两端均存在于对应 H5AD 的命中。同一基因对保留最高 bit score 的完整记录，
+分数相同时选较低 E-value，不改变分数。源同源表和 H5AD 保持不变。
+后续 SAMap 改用 `--maps maps_gene_ids`。正则规则需按各物种注释确认，
+不能将这个示例直接套用于其他基因命名体系。
+
 ```bash
 python samap_integrate.py \
   --species hs=data/human.h5ad \
