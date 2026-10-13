@@ -92,6 +92,28 @@ bash SAMap_tools/map_genes.sh \
 
 ## 运行
 
+### 控制桑基图两侧聚类数量
+
+自动 Leiden 聚类时可分别设置 `--resolution gb=0.3 --resolution cl=0.3`，
+也支持别名 `--resolutions`。未指定的物种沿用 SAMap 默认值。
+resolution 越低通常群越少，但不能直接指定群数。
+若要强制使用自动聚类，设置 `--label-key leiden_clusters`；
+如果使用已有 `cell_type` 标签，resolution 不会合并已有标签。
+实际参数记录在 run.json，运行日志打印每个物种的群数。
+
+```bash
+python samap_integrate.py \
+  --species gb=Gerbera_scRNA.all_samples.2026-Sep-15.h5ad \
+  --species cl=CL15_snRNA.h5ad \
+  --maps maps_gene_ids --out results_r03 \
+  --label-key leiden_clusters \
+  --resolution gb=0.3 --resolution cl=0.3 \
+  --threads 4
+```
+
+需要物种内 Harmony 时按实验设计另加 `--batch-key gb=sample --batch-key cl=orig.ident`。
+这条完整分析命令会重跑 SAM/SAMap，结果的 mapping_scores.csv 可直接用于新的桑基图。
+
 ### 蛋白 ID 与表达基因 ID 不一致
 
 先核对注释及匹配率，再用 `normalize_homology_ids.py` 转换同源表。

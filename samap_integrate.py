@@ -8,6 +8,7 @@ import json
 import os
 from pathlib import Path
 import re
+import math
 
 
 def write_h5ad_compatible(data, destination):
@@ -41,6 +42,8 @@ def parse_args():
     p.add_argument('--label-key', default='cell_type', help='所有物种的细胞类型列名')
     p.add_argument('--batch-key', action='append', default=[], metavar='ID=COLUMN',
                    help='物种内 Harmony 批次列，例如 gb=orig.ident；可重复指定')
+    p.add_argument('--resolution', '--resolutions', action='append', default=[],
+                   metavar='ID=VALUE', help='各物种 Leiden resolution，例如 gb=0.3；可重复指定')
     p.add_argument('--iterations', type=int, default=3)
     p.add_argument('--threads', type=int, default=4)
     p.add_argument('--seed', type=int, default=0)
@@ -67,6 +70,18 @@ def parse_args():
             p.error('batch-key 必须为已声明且不重复的物种 ID=批次列名')
         batch_keys[sid] = column
     a.batch_keys = batch_keys
+    a.resolutions = {}
+    for item in a.resolution:
+        sid, sep, value = item.partition('=')
+        if not sep or sid not in species or sid in a.resolutions:
+            p.error('resolution 必须为已声明且不重复的物种 ID=数值')
+        try:
+            number = float(value)
+        except ValueError:
+            p.error('resolution 必须为有限正数')
+        if not math.isfinite(number) or number <= 0:
+            p.error('resolution 必须为有限正数')
+        a.resolutions[sid] = number
     for x, y in itertools.combinations(species, 2):
         folder = next((a.maps / pair for pair in (x+y, y+x)
                        if (a.maps / pair).is_dir()), None)
@@ -146,8 +161,16 @@ def main():
         sam.run(batch_key=batch_key, seed=args.seed)
         inputs[sid] = sam
 
+    from samap._constants import DEFAULT_LEIDEN_RESOLUTION
+    resolutions = {sid: args.resolutions.get(sid, DEFAULT_LEIDEN_RESOLUTION)
+                   for sid in species}
+    for sid in args.resolutions:
+        if keys[sid] != 'leiden_clusters':
+            print(f'{sid}: 使用已有标签 {keys[sid]!r}，resolution 不会合并这些标签')
     sm = SAMAP(sams=inputs, f_maps=str(args.maps.resolve()) + os.sep,
-               keys=keys, save_processed=False, backend='cpu')
+               keys=keys, resolutions=resolutions, save_processed=False, backend='cpu')
+    for sid, sam in sm.sams.items():
+        print(f'{sid}: 映射标签 {keys[sid]}，共 {sam.adata.obs[keys[sid]].nunique()} 个群')
     for sid, genes in sm.gns_dict.items():
         if len(genes) == 0:
             raise ValueError(f'{sid}: 没有基因匹配 BLAST 图，请检查基因 ID 和过滤')
@@ -171,6 +194,7 @@ def main():
         'maps': str(args.maps.resolve()), 'annotation_keys': keys,
         'counts_layer': args.counts_layer, 'iterations': args.iterations,
         'batch_keys': args.batch_keys, 'pairwise': True,
+        'resolutions': resolutions,
         'threads': args.threads, 'seed': args.seed,
         'sc-samap_version': importlib.metadata.version('sc-samap'),
     }, indent=2), encoding='utf-8')
