@@ -10,6 +10,27 @@ from pathlib import Path
 import re
 
 
+def write_h5ad_compatible(data, destination):
+    """保留分类和数值类型，将 pandas 扩展字符串转换为传统 object。"""
+    import pandas as pd
+    for frame in (data.obs, data.var):
+        frame.index = pd.Index(frame.index.to_numpy(dtype=object),
+                               dtype=object, name=frame.index.name)
+        frame.columns = pd.Index(frame.columns.to_numpy(dtype=object), dtype=object)
+        for column in frame.columns:
+            series = frame[column]
+            if isinstance(series.dtype, pd.CategoricalDtype):
+                categories = series.cat.categories
+                if isinstance(categories.dtype, pd.StringDtype):
+                    frame[column] = pd.Categorical.from_codes(
+                        series.cat.codes.to_numpy(),
+                        categories=pd.Index(categories.to_numpy(dtype=object), dtype=object),
+                        ordered=series.cat.ordered)
+            elif isinstance(series.dtype, pd.StringDtype):
+                frame[column] = series.fillna('').astype(object)
+    data.write_h5ad(destination, convert_strings_to_categoricals=False)
+
+
 def parse_args():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('--species', action='append', required=True, metavar='ID=FILE',
@@ -110,7 +131,7 @@ def main():
         data = ad.AnnData(X=sparse.csr_matrix(counts), obs=source.obs.copy(),
                           var=source.var.copy())
         destination = prepared / f'{sid}.h5ad'
-        data.write_h5ad(destination)
+        write_h5ad_compatible(data, destination)
         batch_key = args.batch_keys.get(sid)
         if batch_key:
             if (batch_key not in data.obs or data.obs[batch_key].isna().any()
@@ -136,14 +157,14 @@ def main():
     ranking.to_csv(args.out / 'mapping_ranking.csv')
     scores.to_csv(args.out / 'mapping_scores.csv')
     merged = sm.samap.adata
-    merged.write_h5ad(args.out / 'samap_joint.h5ad')
+    write_h5ad_compatible(merged, args.out / 'samap_joint.h5ad')
     merged.obs.to_csv(args.out / 'cells.csv')
     if 'X_umap' in merged.obsm:
         import pandas as pd
         pd.DataFrame(merged.obsm['X_umap'], index=merged.obs_names,
                      columns=['UMAP1', 'UMAP2']).to_csv(args.out / 'umap.csv')
     for sid, sam in sm.sams.items():
-        sam.adata.write_h5ad(args.out / f'{sid}_processed.h5ad')
+        write_h5ad_compatible(sam.adata, args.out / f'{sid}_processed.h5ad')
     import importlib.metadata
     (args.out / 'run.json').write_text(json.dumps({
         'species': {k: str(v) for k, v in species.items()},
