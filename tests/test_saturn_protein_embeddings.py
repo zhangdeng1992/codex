@@ -11,7 +11,7 @@ from saturn_protein_embeddings import main, embed_sequence
 
 
 class EmbeddingPreparationTest(unittest.TestCase):
-    def test_long_sequence_preserves_tail_and_weights_by_length(self):
+    def test_long_sequence_is_sent_whole_and_special_tokens_excluded(self):
         chunks = []
         def convert(rows):
             sequence = rows[0][1]
@@ -24,8 +24,8 @@ class EmbeddingPreparationTest(unittest.TestCase):
                 return {'representations': {33: tokens}}
         sequence = 'A' * 1022 + 'C' * 39
         with torch.inference_mode():
-            vector = embed_sequence(Model(), convert, 'Ger_038647.m1', sequence, 'cpu', 1022)
-        self.assertEqual([len(chunk) for chunk in chunks], [1022, 39])
+            vector = embed_sequence(Model(), convert, 'Ger_038647.m1', sequence, 'cpu')
+        self.assertEqual([len(chunk) for chunk in chunks], [1061])
         self.assertEqual(''.join(chunks), sequence)
         torch.testing.assert_close(vector, torch.tensor([(1022 + 39 * 3) / 1061]))
 
