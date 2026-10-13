@@ -7,10 +7,28 @@ from unittest.mock import patch
 
 import torch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from saturn_protein_embeddings import main
+from saturn_protein_embeddings import main, embed_sequence
 
 
 class EmbeddingPreparationTest(unittest.TestCase):
+    def test_long_sequence_preserves_tail_and_weights_by_length(self):
+        chunks = []
+        def convert(rows):
+            sequence = rows[0][1]
+            chunks.append(sequence)
+            values = [100.] + [1. if residue == 'A' else 3. for residue in sequence] + [100.]
+            return None, None, torch.tensor(values)[None, :, None]
+        class Model:
+            num_layers = 33
+            def __call__(self, tokens, **kwargs):
+                return {'representations': {33: tokens}}
+        sequence = 'A' * 1022 + 'C' * 39
+        with torch.inference_mode():
+            vector = embed_sequence(Model(), convert, 'Ger_038647.m1', sequence, 'cpu', 1022)
+        self.assertEqual([len(chunk) for chunk in chunks], [1022, 39])
+        self.assertEqual(''.join(chunks), sequence)
+        torch.testing.assert_close(vector, torch.tensor([(1022 + 39 * 3) / 1061]))
+
     def test_isoform_mean_and_special_tokens_excluded(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

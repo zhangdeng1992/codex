@@ -5,6 +5,20 @@ import csv
 from pathlib import Path
 
 
+def embed_sequence(model, convert, protein, sequence, device, max_length):
+    """非重叠分段；按残基数加权，BOS/EOS 不参与均值。"""
+    total = None
+    for start in range(0, len(sequence), max_length):
+        chunk = sequence[start:start + max_length]
+        _, _, tokens = convert([(f'{protein}:{start}', chunk)])
+        result = model(tokens.to(device), repr_layers=[model.num_layers], return_contacts=False)
+        residues = result['representations'][model.num_layers][0, 1:len(chunk)+1]
+        chunk_sum = residues.float().sum(0).cpu()
+        total = chunk_sum if total is None else total + chunk_sum
+        del result, residues, tokens
+    return total / len(sequence)
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('--fasta', type=Path, required=True)
@@ -12,7 +26,9 @@ def main():
     p.add_argument('--out', type=Path, required=True)
     p.add_argument('--device', default='cuda:0')
     p.add_argument('--model', choices=['esm2_t33_650M_UR50D', 'esm2_t30_150M_UR50D'], default='esm2_t33_650M_UR50D')
-    p.add_argument('--max-length', type=int, default=1022, help='超过该长度直接报错，避免静默截断')
+    p.add_argument('--max-length', type=int, default=1022, help='单次推理的最大残基数，范围 1–1022')
+    p.add_argument('--long-sequence', choices=['error', 'chunk'], default='error',
+                   help='长蛋白处理：error 报错；chunk 分段并按残基数加权平均')
     a = p.parse_args()
     if a.out.exists():
         p.error('输出文件已存在')
@@ -43,11 +59,20 @@ def main():
             p.error(f'gene-map 缺少 FASTA ID: {record.id}')
         gene = mapping[record.id] if a.gene_map else record.id
         sequence = str(record.seq).upper()
-        if not sequence or len(sequence) > a.max_length or set(sequence) - set('ACDEFGHIKLMNPQRSTVWYBXZUO'):
-            p.error(f'{record.id}: 序列为空、过长或含不支持字符；请先处理序列')
+        if not sequence:
+            p.error(f'{record.id}: 序列为空')
+        invalid = sorted(set(sequence) - set('ACDEFGHIKLMNPQRSTVWYBXZUO'))
+        if invalid:
+            p.error(f'{record.id}: 不支持的字符 {invalid}')
+        if len(sequence) > a.max_length and a.long_sequence == 'error':
+            p.error(f'{record.id}: 长度 {len(sequence)} 超过 {a.max_length}；'
+                    '可显式使用 --long-sequence chunk 保留全部残基进行分段推理')
         records.append((record.id, gene, sequence))
     if not records:
         p.error('FASTA 没有序列')
+    long_count = sum(len(sequence) > a.max_length for _, _, sequence in records)
+    print(f'共 {len(records)} 个蛋白，{long_count} 个需要分段；'
+          f'长蛋白策略：{a.long_sequence}，片段长度：{a.max_length}', flush=True)
     if a.gene_map and set(mapping) - seen:
         p.error('gene-map 包含 FASTA 中不存在的 protein_id')
     gene_cases = {}
@@ -62,9 +87,7 @@ def main():
     sums, numbers = {}, {}
     with torch.inference_mode():
         for index, (protein, gene, sequence) in enumerate(records, 1):
-            _, _, tokens = convert([(protein, sequence)])
-            result = model(tokens.to(a.device), repr_layers=[model.num_layers], return_contacts=False)
-            vector = result['representations'][model.num_layers][0, 1:len(sequence)+1].mean(0).cpu()
+            vector = embed_sequence(model, convert, protein, sequence, a.device, a.max_length)
             sums[gene] = sums.get(gene, torch.zeros_like(vector)) + vector
             numbers[gene] = numbers.get(gene, 0) + 1
             if index % 100 == 0:
