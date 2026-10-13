@@ -161,3 +161,8 @@ python samap_integrate.py \
 基因同源覆盖和生物学信息审核。
 
 官方项目：https://github.com/atarashansky/SAMap
+
+## SATURN 跨物种整合
+
+新增 SATURN 服务器运行入口，支持蛋白 ESM-2 嵌入生成、H5AD counts/标签检查和官方训练调用。
+安装、Gerbera/CL15 命令及输出说明见 [SATURN 使用指南](SATURN.md)。

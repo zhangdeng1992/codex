@@ -1,0 +1,81 @@
+#!/usr/bin/env python3
+"""用 ESM-2 生成 SATURN gene_id -> Tensor 嵌入；不猜测蛋白 ID 到基因 ID 的对应。"""
+import argparse
+import csv
+from pathlib import Path
+
+
+def main():
+    p = argparse.ArgumentParser(description=__doc__)
+    p.add_argument('--fasta', type=Path, required=True)
+    p.add_argument('--gene-map', type=Path, help='CSV: protein_id,gene_id；不指定时 FASTA ID 必须就是基因 ID')
+    p.add_argument('--out', type=Path, required=True)
+    p.add_argument('--device', default='cuda:0')
+    p.add_argument('--model', choices=['esm2_t33_650M_UR50D', 'esm2_t30_150M_UR50D'], default='esm2_t33_650M_UR50D')
+    p.add_argument('--max-length', type=int, default=1022, help='超过该长度直接报错，避免静默截断')
+    a = p.parse_args()
+    if a.out.exists():
+        p.error('输出文件已存在')
+    if a.max_length < 1 or a.max_length > 1022:
+        p.error('max-length 应在 1 到 1022 之间')
+    import torch
+    import esm
+    from Bio import SeqIO
+    if a.device.startswith('cuda') and not torch.cuda.is_available():
+        p.error('CUDA 不可用；可显式使用 --device cpu，但大型蛋白模型运行较慢')
+    mapping = {}
+    if a.gene_map:
+        with a.gene_map.open(newline='') as handle:
+            reader = csv.DictReader(handle)
+            if not {'protein_id', 'gene_id'} <= set(reader.fieldnames or []):
+                p.error('gene-map 必须含 protein_id,gene_id 列')
+            for row in reader:
+                protein, gene = row['protein_id'].strip(), row['gene_id'].strip()
+                if not protein or not gene or protein in mapping:
+                    p.error('gene-map 含空 ID 或重复 protein_id')
+                mapping[protein] = gene
+    records, seen = [], set()
+    for record in SeqIO.parse(a.fasta, 'fasta'):
+        if record.id in seen:
+            p.error(f'重复 FASTA ID: {record.id}')
+        seen.add(record.id)
+        if a.gene_map and record.id not in mapping:
+            p.error(f'gene-map 缺少 FASTA ID: {record.id}')
+        gene = mapping[record.id] if a.gene_map else record.id
+        sequence = str(record.seq).upper()
+        if not sequence or len(sequence) > a.max_length or set(sequence) - set('ACDEFGHIKLMNPQRSTVWYBXZUO'):
+            p.error(f'{record.id}: 序列为空、过长或含不支持字符；请先处理序列')
+        records.append((record.id, gene, sequence))
+    if not records:
+        p.error('FASTA 没有序列')
+    if a.gene_map and set(mapping) - seen:
+        p.error('gene-map 包含 FASTA 中不存在的 protein_id')
+    gene_cases = {}
+    for _, gene, _ in records:
+        if gene.lower() in gene_cases and gene_cases[gene.lower()] != gene:
+            p.error('基因 ID 大小写冲突，SATURN 会按小写匹配')
+        gene_cases[gene.lower()] = gene
+    # 官方 fair-esm 会下载模型权重；两个物种必须选同一模型。
+    model, alphabet = getattr(esm.pretrained, a.model)()
+    model.eval().to(a.device)
+    convert = alphabet.get_batch_converter()
+    sums, numbers = {}, {}
+    with torch.inference_mode():
+        for index, (protein, gene, sequence) in enumerate(records, 1):
+            _, _, tokens = convert([(protein, sequence)])
+            result = model(tokens.to(a.device), repr_layers=[model.num_layers], return_contacts=False)
+            vector = result['representations'][model.num_layers][0, 1:len(sequence)+1].mean(0).cpu()
+            sums[gene] = sums.get(gene, torch.zeros_like(vector)) + vector
+            numbers[gene] = numbers.get(gene, 0) + 1
+            if index % 100 == 0:
+                print(f'{index}/{len(records)} proteins', flush=True)
+    # 多个蛋白对应一个基因时，对其嵌入取均值。
+    embeddings = {gene: total / numbers[gene] for gene, total in sums.items()}
+    a.out.parent.mkdir(parents=True, exist_ok=True)
+    with a.out.open('xb') as handle:
+        torch.save(embeddings, handle)
+    print(f'完成：{len(records)} 个蛋白 → {len(embeddings)} 个基因；{a.out}')
+
+
+if __name__ == '__main__':
+    main()
