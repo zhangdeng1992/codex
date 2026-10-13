@@ -11,6 +11,26 @@ from saturn_protein_embeddings import main, embed_sequence, load_protein_model
 
 
 class EmbeddingPreparationTest(unittest.TestCase):
+    def test_esm1b_model_capacity_splits_1061_residues_without_loss(self):
+        calls = []
+        def convert(rows):
+            seq = rows[0][1]
+            values = [100.] + [1. if r == 'A' else 3. for r in seq] + [100.]
+            return None, None, torch.tensor(values)[None, :, None]
+        class Model:
+            num_layers = 33
+            embed_positions = SimpleNamespace(max_positions=1024)
+            def __call__(self, tokens, **kwargs):
+                calls.append(tokens.shape[1])
+                if tokens.shape[1] > self.embed_positions.max_positions:
+                    raise ValueError('Model length exceeded')
+                return {'representations': {33: tokens}}
+        sequence = 'A' * 1022 + 'C' * 39
+        with torch.inference_mode():
+            vector = embed_sequence(Model(), convert, 'Ger_038647.m1', sequence, 'cpu')
+        self.assertEqual(calls, [1024, 41])
+        torch.testing.assert_close(vector, torch.tensor([(1022 + 39 * 3) / 1061]))
+
     def test_local_esm1b_loading_never_calls_download_factory(self):
         from unittest.mock import Mock
         with tempfile.TemporaryDirectory() as tmp:

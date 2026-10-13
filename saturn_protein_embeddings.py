@@ -21,11 +21,26 @@ def load_protein_model(esm, torch, model_name, model_file):
 
 
 def embed_sequence(model, convert, protein, sequence, device):
-    """整条序列一次推理；BOS/EOS 不参与残基嵌入均值。"""
+    """按模型自身的位置容量分段；保留所有残基并按残基数加权。"""
     _, _, tokens = convert([(protein, sequence)])
-    result = model(tokens.to(device), repr_layers=[model.num_layers], return_contacts=False)
-    residues = result['representations'][model.num_layers][0, 1:len(sequence)+1]
-    return residues.float().mean(0).cpu()
+    max_positions = getattr(getattr(model, 'embed_positions', None), 'max_positions', None)
+    chunk_length = len(sequence)
+    if max_positions is not None:
+        special_tokens = tokens.shape[1] - len(sequence)
+        chunk_length = max_positions - special_tokens
+        if chunk_length < 1:
+            raise ValueError('模型的位置容量不足以容纳残基及特殊 token')
+    total = None
+    for start in range(0, len(sequence), chunk_length):
+        chunk = sequence[start:start + chunk_length]
+        if start or len(chunk) != len(sequence):
+            _, _, tokens = convert([(f'{protein}:{start}', chunk)])
+        result = model(tokens.to(device), repr_layers=[model.num_layers], return_contacts=False)
+        residues = result['representations'][model.num_layers][0, 1:len(chunk)+1]
+        chunk_sum = residues.float().sum(0).cpu()
+        total = chunk_sum if total is None else total + chunk_sum
+        del result, residues
+    return total / len(sequence)
 
 
 def main():
@@ -73,7 +88,7 @@ def main():
         records.append((record.id, gene, sequence))
     if not records:
         p.error('FASTA 没有序列')
-    print(f'共 {len(records)} 个蛋白，使用完整序列推理', flush=True)
+    print(f'共 {len(records)} 个蛋白，保留全部残基；按模型自身容量处理长序列', flush=True)
     if a.gene_map and set(mapping) - seen:
         p.error('gene-map 包含 FASTA 中不存在的 protein_id')
     gene_cases = {}
@@ -87,6 +102,13 @@ def main():
     except ValueError as error:
         p.error(str(error))
     model.eval().to(a.device)
+    max_positions = getattr(getattr(model, 'embed_positions', None), 'max_positions', None)
+    if max_positions is not None:
+        special_tokens = int(alphabet.prepend_bos) + int(alphabet.append_eos)
+        capacity = max_positions - special_tokens
+        long_count = sum(len(sequence) > capacity for _, _, sequence in records)
+        print(f'模型容量 {max_positions} tokens，单段 {capacity} 残基；'
+              f'{long_count} 个蛋白将自动分段（嵌入为近似结果）', flush=True)
     convert = alphabet.get_batch_converter()
     sums, numbers = {}, {}
     with torch.inference_mode():
