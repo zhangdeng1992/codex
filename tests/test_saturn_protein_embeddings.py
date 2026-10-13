@@ -7,10 +7,25 @@ from unittest.mock import patch
 
 import torch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from saturn_protein_embeddings import main, embed_sequence
+from saturn_protein_embeddings import main, embed_sequence, load_protein_model
 
 
 class EmbeddingPreparationTest(unittest.TestCase):
+    def test_local_esm1b_loading_never_calls_download_factory(self):
+        from unittest.mock import Mock
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / 'esm1b_t33_650M_UR50S.pt'
+            torch.save({'model': {'dummy': torch.tensor([1.])}}, path)
+            core = Mock(return_value=('model', 'alphabet'))
+            download = Mock(side_effect=AssertionError('Unexpected download'))
+            esm = SimpleNamespace(pretrained=SimpleNamespace(
+                load_model_and_alphabet_core=core, esm2_t33_650M_UR50D=download))
+            loaded = load_protein_model(esm, torch, 'esm2_t33_650M_UR50D', path)
+            self.assertEqual(loaded, ('model', 'alphabet'))
+            self.assertEqual(core.call_args.args[0], 'esm1b_t33_650M_UR50S')
+            self.assertIsNone(core.call_args.args[2])
+            download.assert_not_called()
+
     def test_long_sequence_is_sent_whole_and_special_tokens_excluded(self):
         chunks = []
         def convert(rows):

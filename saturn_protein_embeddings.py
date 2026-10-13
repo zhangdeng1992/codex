@@ -1,8 +1,23 @@
 #!/usr/bin/env python3
-"""用 ESM-2 生成 SATURN gene_id -> Tensor 嵌入；不猜测蛋白 ID 到基因 ID 的对应。"""
+"""用 ESM-1b / ESM-2 生成 SATURN gene_id -> Tensor 嵌入。"""
 import argparse
 import csv
 from pathlib import Path
+
+MODELS = ['esm1b_t33_650M_UR50S', 'esm2_t33_650M_UR50D', 'esm2_t30_150M_UR50D']
+
+
+def load_protein_model(esm, torch, model_name, model_file):
+    if model_file is None:
+        return getattr(esm.pretrained, model_name)()
+    if not model_file.is_file():
+        raise ValueError(f'本地模型文件不存在：{model_file}')
+    if model_file.stem not in MODELS:
+        raise ValueError('本地权重文件须保留官方模型文件名，如 esm1b_t33_650M_UR50S.pt')
+    # 官方 ESM-1b checkpoint 含 argparse Namespace；只使用可信来源的本地权重。
+    checkpoint = torch.load(str(model_file), map_location='cpu', weights_only=False)
+    # 嵌入不使用 contact head，因此无需下载 contact-regression 辅助权重。
+    return esm.pretrained.load_model_and_alphabet_core(model_file.stem, checkpoint, None)
 
 
 def embed_sequence(model, convert, protein, sequence, device):
@@ -19,7 +34,9 @@ def main():
     p.add_argument('--gene-map', type=Path, help='CSV: protein_id,gene_id；不指定时 FASTA ID 必须就是基因 ID')
     p.add_argument('--out', type=Path, required=True)
     p.add_argument('--device', default='cuda:0')
-    p.add_argument('--model', choices=['esm2_t33_650M_UR50D', 'esm2_t30_150M_UR50D'], default='esm2_t33_650M_UR50D')
+    p.add_argument('--model', choices=MODELS, default='esm2_t33_650M_UR50D')
+    p.add_argument('--model-file', type=Path,
+                   help='可信来源的本地官方 .pt 权重；优先于 --model，不触发下载')
     a = p.parse_args()
     if a.out.exists():
         p.error('输出文件已存在')
@@ -64,8 +81,11 @@ def main():
         if gene.lower() in gene_cases and gene_cases[gene.lower()] != gene:
             p.error('基因 ID 大小写冲突，SATURN 会按小写匹配')
         gene_cases[gene.lower()] = gene
-    # 官方 fair-esm 会下载模型权重；两个物种必须选同一模型。
-    model, alphabet = getattr(esm.pretrained, a.model)()
+    # 两个物种必须选同一模型；本地加载不调用下载接口。
+    try:
+        model, alphabet = load_protein_model(esm, torch, a.model, a.model_file)
+    except ValueError as error:
+        p.error(str(error))
     model.eval().to(a.device)
     convert = alphabet.get_batch_converter()
     sums, numbers = {}, {}

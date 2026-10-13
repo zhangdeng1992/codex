@@ -78,6 +78,14 @@ python saturn_protein_embeddings.py \
 长序列的实际可运行长度取决于模型实现及显存，显存需求会随序列长度增长。
 两个物种应使用相同模型。已有嵌入可直接跳过本步骤。
 
+已有 ESM-1b 权重时，可用 `--model-file /absolute/path/esm1b_t33_650M_UR50S.pt`
+直接加载本地文件，不会下载模型或 contact-regression 辅助权重；嵌入不需要接触预测头。
+文件需保留官方模型名称，并来自可信来源；官方 checkpoint 加载会反序列化 Python 对象。
+若提示缺少 regression weights，仅影响接触预测，本脚本不请求接触预测。
+两个物种均须使用同一 ESM-1b 权重，不能一个用 ESM-1b、另一个用 ESM-2。
+ESM-1b 本身的 learned positional embedding 有长度限制；本地加载不解除模型限制，
+1061 残基的完整序列可能无法运行，需另行决定长蛋白处理策略。
+
 ## 3. 准备并运行 SATURN
 
 替换所有 `/path/to/` 路径及标签列名。输出目录必须尚不存在。
