@@ -1,0 +1,4 @@
+# 可选：生成文本嵌入时需要；PyTorch 使用当前环境的版本。
+transformers==4.44.2
+sentencepiece>=0.2,<0.3
+safetensors>=0.4

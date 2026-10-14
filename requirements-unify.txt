@@ -1,0 +1,14 @@
+# Python 3.10–3.12；PyTorch/CUDA 单独安装，避免替换服务器已有 GPU 版本。
+# Unify 40597f69 使用 pandas Series 索引 torch Tensor，故固定 pandas 2.x。
+numpy==1.26.4
+pandas==2.2.3
+anndata==0.10.9
+scanpy==1.10.4
+scipy==1.13.1
+scikit-learn==1.5.2
+scikit-misc==0.3.1
+matplotlib>=3.8,<3.10
+igraph>=0.11,<0.12
+leidenalg>=0.10,<0.11
+
+louvain==0.8.2

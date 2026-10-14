@@ -166,3 +166,8 @@ python samap_integrate.py \
 
 新增 SATURN 服务器运行入口，支持蛋白 ESM-2 嵌入生成、H5AD counts/标签检查和官方训练调用。
 安装、Gerbera/CL15 命令及输出说明见 [SATURN 使用指南](SATURN.md)。
+
+## Unify 多模态跨物种整合
+
+复用 ESM 蛋白嵌入，结合基因功能文本嵌入运行 Unify。
+非洲菊/甘菊输入准备、拟南芥注释要求及 LSF 提交命令见 [Unify 使用指南](UNIFY.md)。
