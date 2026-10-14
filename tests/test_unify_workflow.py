@@ -3,14 +3,31 @@ from types import SimpleNamespace
 import sys
 import tempfile
 import unittest
+from io import StringIO
 import torch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from unify_integrate import parse_columns, build_command
 from unify_text_embeddings import read_descriptions, encode_descriptions
-from unify_prepare_descriptions import convert_rows
+from unify_prepare_descriptions import convert_rows, read_cl_tair
 
 
 class UnifyWorkflowTest(unittest.TestCase):
+    def test_cl_unnamed_columns_quotes_and_missing_descriptions(self):
+        text = ('gene\ttair_id\t\t\n'
+                'CL1A000080\tAT3G16590.1 \t Symbols: no symbol available \t no full name available \n'
+                'CL1A000120\tAT1G74960.3 \t" Symbols: ATKAS2, FAB1, KAS2 "\t" ARABIDOPSIS BETA-KETOACYL-ACP SYNTHETASE 2, fatty acid biosynthesis 1 "\n'
+                'CL1A000180\tAT1G19210.1 \t" Symbols: ERF017, ERF17 "\t  \n')
+        desc, evidence, unmatched, missing, stats = convert_rows(
+            read_cl_tair(StringIO(text)), {'CL1A000080', 'CL1A000120', 'CL1A000180'},
+            'gene', 'ath_description', None)
+        self.assertEqual(len(desc), 1)
+        self.assertEqual(desc[0][0], 'CL1A000120')
+        self.assertIn(', fatty acid biosynthesis 1', desc[0][1])
+        self.assertEqual(evidence[0]['ath_acc'], 'AT1G74960.3')
+        self.assertEqual(evidence[0]['ath_symbol'], 'ATKAS2, FAB1, KAS2')
+        self.assertEqual(missing, ['CL1A000080', 'CL1A000180'])
+        self.assertEqual(stats['matched_rows_without_description'], 2)
+
     def test_arabidopsis_transfer_keeps_native_ids_and_skips_missing_descriptions(self):
         rows = [
             {'gerbera_id': 'Ger_042786.m1', 'ath_acc': 'AT3G02960.1', 'ath_description': 'no full name available'},

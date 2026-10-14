@@ -9,6 +9,24 @@ import re
 EMPTY_DESCRIPTIONS = {'', 'no full name available', 'no description available', 'no description', 'unknown', 'nan', 'none', 'na', 'n/a', '-'}
 
 
+def read_cl_tair(handle):
+    """读取 gene/tair_id/无标题symbol/无标题description 四列 TSV。"""
+    reader = csv.reader(handle, delimiter='\t', skipinitialspace=True)
+    header = next(reader, [])
+    if [value.strip() for value in header[:2]] != ['gene', 'tair_id']:
+        raise ValueError('cl-tair 格式前两列表头必须为 gene 和 tair_id')
+    for row in reader:
+        if not row or not any(value.strip() for value in row):
+            continue
+        if not 2 <= len(row) <= 4:
+            raise ValueError(f'第 {reader.line_num} 行不是预期的四列 TSV；请检查分隔符')
+        row += [''] * (4 - len(row))
+        gene, accession, symbol, description = [value.strip() for value in row]
+        yield {'gene': gene, 'ath_acc': accession,
+               'ath_symbol': symbol.removeprefix('Symbols:').strip(),
+               'ath_description': description}
+
+
 def convert_rows(rows, genes, gene_column, description_column, strip_suffix):
     pattern = re.compile(strip_suffix) if strip_suffix else None
     if pattern and not strip_suffix.endswith('$'):
@@ -45,6 +63,8 @@ def convert_rows(rows, genes, gene_column, description_column, strip_suffix):
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('--annotations', type=Path, required=True, help='带表头的 TSV 注释表')
+    p.add_argument('--annotation-format', choices=['named', 'cl-tair'], default='named',
+                   help='named 使用列名；cl-tair 读取 gene/tair_id 后无标题的 symbol 和描述列')
     p.add_argument('--h5ad', type=Path, required=True, help='本物种的表达数据，仅用基因 ID')
     p.add_argument('--gene-column', default='gerbera_id')
     p.add_argument('--description-column', default='ath_description')
@@ -62,12 +82,17 @@ def main():
     finally:
         data.file.close()
     with a.annotations.open(encoding='utf-8-sig', newline='') as handle:
-        reader = csv.DictReader(handle, delimiter='\t')
-        if not {a.gene_column, a.description_column} <= set(reader.fieldnames or []):
-            p.error(f'注释表缺少列 {a.gene_column} 或 {a.description_column}')
+        if a.annotation_format == 'cl-tair':
+            reader = read_cl_tair(handle)
+            gene_column, description_column = 'gene', 'ath_description'
+        else:
+            reader = csv.DictReader(handle, delimiter='\t')
+            gene_column, description_column = a.gene_column, a.description_column
+            if not {gene_column, description_column} <= set(reader.fieldnames or []):
+                p.error(f'注释表缺少列 {gene_column} 或 {description_column}')
         try:
             desc, evidence, unmatched, missing, stats = convert_rows(
-                reader, genes, a.gene_column, a.description_column, a.strip_suffix)
+                reader, genes, gene_column, description_column, a.strip_suffix)
         except ValueError as error:
             p.error(str(error))
     if not desc:

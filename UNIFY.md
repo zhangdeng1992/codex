@@ -35,8 +35,17 @@ python codex-main/unify_prepare_descriptions.py \
 将下文生成 GB 嵌入命令中的输入换成 `--descriptions gb_unify_annotations/gene_descriptions.tsv`。
 脚本跳过 `no full name available` 等空描述，按 H5AD ID 核对，保存 `annotation_evidence.csv`、
 `genes_without_descriptions.csv` 和 `coverage.json`；同一基因的重复描述去重，不同描述保留并在嵌入时取平均。
-CL 表同样处理，但 `--gene-column` 须换成 CL 原始 ID 列名；若是 `CL1A000080.5`，
-使用 `--strip-suffix '\.[0-9]+$'`。CL 注释表头尚未提供，不猜测其列名。
+CL 表的前两列为 `gene`、`tair_id`，后两列没有列名，分别是 `Symbols:` 和功能描述。
+保存为制表符分隔的 `CL15_ath_annotations.tsv`，使用专用格式读取：
+
+```bash
+python codex-main/unify_prepare_descriptions.py \
+  --annotations CL15_ath_annotations.tsv --annotation-format cl-tair \
+  --h5ad CL15_rep1_rep2.h5ad --out cl_unify_annotations
+```
+
+该表的 ID 已是 `CL1A000080`，不需要去后缀。格式读取会处理空列名、字段空格和引号，
+保留描述中的逗号，并把 `tair_id` 和 symbol 保存到来源表；空描述仍跳过。
 
 ## 安装
 
@@ -83,7 +92,7 @@ bsub -q gpu -gpu "num=1" -n 4 -J gb_text -o gb_text.%J.out -e gb_text.%J.err \
 
 bsub -q gpu -gpu "num=1" -n 4 -J cl_text -o cl_text.%J.out -e cl_text.%J.err \
   "$HOME/micromamba/envs/unify/bin/python" codex-main/unify_text_embeddings.py \
-  --descriptions cl_gene_descriptions.tsv \
+  --descriptions cl_unify_annotations/gene_descriptions.tsv \
   --model-dir ./models/Llama-2-7b-hf --device cuda:0 --out cl_text.pt
 ```
 
@@ -140,4 +149,4 @@ sc.pl.umap(adata, color=['species', 'unify_cell_type'])
 本次已验证：Python 3.12、PyTorch 2.5.1 CPU 与 requirements-unify.txt 中的依赖可运行官方
 猫/虎 toy_data，一轮训练后得到 1788 个细胞、256 维且全部有限的 X_unify。
 短跑使用 500 HVG、每个模态 16 macrogenes、batch-size 128；这只验证流程，不代表整合质量。
-另有 15 项自动测试通过，涵盖输入检查、物种/模态顺序、文本池化和拟南芥注释转换。
+另有 16 项自动测试通过，涵盖输入检查、物种/模态顺序、文本池化和拟南芥注释转换。
