@@ -7,6 +7,7 @@ SATURN 将不同物种的细胞映射到共享嵌入空间，同时学习 macrog
 本仓库新增：
 
 - `saturn_protein_embeddings.py`：ESM-2 蛋白嵌入，可显式把蛋白 ID 映射到表达基因 ID。
+- `saturn_prepare_h5ad.py`：将已有 GB/CL H5AD 转成原始 counts 位于 X、标签统一为 cell_type 的输入，检查基因 ID 和嵌入覆盖。
 - `saturn_integrate.py`：检查输入并生成 counts 副本、CSV 和训练脚本，`--run` 时调用官方训练。
 - `requirements-saturn.txt`：独立环境的起始依赖约束，避免影响原有 SAMap 环境。
 
@@ -44,8 +45,8 @@ FAISS 这里只用于 CPU 近邻计算，模型训练仍使用 GPU。官方入�
 2. 一个细胞类型标签列，如 `cell_type`。两文件须使用同一列名；标签不要求跨物种一一相同。
 3. `gene_id -> 一维浮点 Tensor` 的 `.pt` 嵌入字典。两物种须使用相同蛋白语言模型，维度一致。
 
-基因 ID 必须唯一，且与嵌入键对应。不要直接用 `.m1` / `.5` 的字符串裁剪规则猜测
-蛋白与表达基因对应关系。SATURN 会按小写 ID 匹配，因此脚本也会检查小写后的重复。
+基因 ID 必须唯一，且与嵌入键对应。只有在注释确认的情况下才使用后缀转换规则，不能将
+GB 的 `.m1` 规则直接套用于其他物种。SATURN 会按小写 ID 匹配，因此脚本也会检查小写后的重复。
 
 如果只有蛋白 FASTA，提供显式注释映射 CSV，例如：
 
@@ -87,6 +88,85 @@ python saturn_protein_embeddings.py \
 两个物种均须使用同一 ESM-1b 权重，不能一个用 ESM-1b、另一个用 ESM-2。
 ESM-1b 的位置编码容量为 1024 tokens，含 BOS/EOS，因此每段最多 1022 个残基。
 例如 1061 残基自动分为 1022 + 39 两段，不删除或截断序列。
+
+### 已有 Gerbera / CL15 H5AD 的完整准备脚本
+
+在服务器数据目录执行以下命令；假设本仓库位于 `codex-main/`。
+脚本无需 GPU，不会修改原始 H5AD 或蛋白嵌入文件。输出及其同名报告必须尚不存在。
+
+```bash
+"$HOME/micromamba/envs/saturn/bin/python" codex-main/saturn_prepare_h5ad.py \
+  --input Gerbera_scRNA.all_samples.2026-Sep-15.h5ad \
+  --embedding gb_ESM2.pt \
+  --label-key cell-type \
+  --id-mode gerbera \
+  --out gb_original_saturn_ready.h5ad
+```
+
+`gerbera` 模式去除 ID 首尾空格，将 `Ger-004062` 转为 `Ger_004062`，
+并将 `Ger_004062.m1` 转为 `Ger_004062`；已经正确的 ID 不变。
+该后缀规则仅用于 `Ger_数字.m数字`，不会自动处理 CL 等其他物种的后缀。
+转换后出现重复（包括小写后的重复）时停止，不自动合并转录本或添加 `.1` 等后缀。
+
+此命令使用原始 `cell-type` 注释。若输入是 Seurat 导出的文件且要使用手动注释，
+改用 `--input gb_seurat_annotated.h5ad --label-key cell_type_manual`，并选择不同输出文件名。
+
+CL 不改基因 ID，只统一标签：
+
+```bash
+"$HOME/micromamba/envs/saturn/bin/python" codex-main/saturn_prepare_h5ad.py \
+  --input CL15_snRNA.h5ad \
+  --embedding cl_ESM2.pt \
+  --label-key celltype \
+  --id-mode none \
+  --out cl_original_saturn_ready.h5ad
+```
+
+若仅分析 rep1/rep2，请将 CL 输入换成已筛选的 `CL15_rep1_rep2.h5ad`；
+本脚本不自动筛选样本。
+
+默认优先读取 `layers['counts']`，没有该层时读取 `X`。可以用 `--counts-layer X`
+强制选择 X，或用 `--counts-layer raw_counts` 指定其他层。
+脚本要求非负、有限、整数 counts 和非零总计数细胞，不会对标准化表达取整。
+最终把原始 counts 写入输出 X，复制指定标签到 `obs['cell_type']`；
+保留其他 obs/var 元数据、layers、obsm、uns，以及原有 raw（若存在）。
+基因 ID 转换只作用于主表达矩阵的 var_names，raw 内的原始 ID 保持不变；SATURN 使用 X。
+原始基因 ID 另存于 `var['saturn_original_gene_id']`。
+不修改细胞 ID，也不丢弃未匹配基因；后续 SATURN 入口会添加物种前缀并处理嵌入覆盖。
+
+除 H5AD 外，每次生成两个文件，例如：
+
+- `gb_original_saturn_ready.gene_id_map.csv`：所有基因转换前后的 ID。
+- `gb_original_saturn_ready.report.json`：计数来源、标签来源、转换数量、嵌入匹配数与细胞类型数量。
+
+嵌入必须为有限、同维度的一维浮点 Tensor 字典。完全不匹配时停止；部分覆盖会报告，
+请根据报告核查覆盖是否符合预期。验证只证明数据格式符合要求，不能仅凭整数值确定数据处理历史。
+
+准备成功后可直接提交（输出目录必须为新目录）：
+
+```bash
+bsub -q gpu -gpu "num=1" -n 4 \
+  -J saturn_gb_cl -o saturn_gb_cl.%J.out -e saturn_gb_cl.%J.err \
+  "$HOME/micromamba/envs/saturn/bin/python" -u codex-main/saturn_integrate.py \
+  --species gb=gb_original_saturn_ready.h5ad \
+  --species cl=cl_original_saturn_ready.h5ad \
+  --embedding gb=gb_ESM2.pt --embedding cl=cl_ESM2.pt \
+  --label-key cell_type \
+  --saturn-dir /data/home/dingbaoqing/zhangdeng/soft/SATURN \
+  --out saturn_gb_cl_original_prepared_run1 \
+  --hv-genes 8000 --num-macrogenes 2000 \
+  --pretrain-epochs 200 --epochs 50 --batch-size 256 \
+  --device-num 0 --seed 0 --run
+```
+
+这里 counts 已在 X，不加 `--counts-layer counts`。上述训练参数沿用原运行配置，
+并不是针对数据优化后的参数。
+
+验证准备脚本及 SATURN 输入兼容性：
+
+```bash
+python -m unittest discover -s codex-main/tests -p 'test_saturn*.py' -v
+```
 
 ## 3. 准备并运行 SATURN
 

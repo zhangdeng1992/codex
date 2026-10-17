@@ -165,6 +165,7 @@ python samap_integrate.py \
 ## SATURN 跨物种整合
 
 新增 SATURN 服务器运行入口，支持蛋白 ESM-2 嵌入生成、H5AD counts/标签检查和官方训练调用。
+已有 GB/CL H5AD 可先用 `saturn_prepare_h5ad.py` 统一注释、转换 GB 基因 ID，并验证蛋白嵌入覆盖。
 安装、Gerbera/CL15 命令及输出说明见 [SATURN 使用指南](SATURN.md)。
 
 ## Unify 多模态跨物种整合
